@@ -25,6 +25,7 @@ public interface PacketReaderListener {
     /**
      * Process the parsed xml.
      * @param parser the parser for the xml
+     * @return {@code true} if the normal smack processing should continue.
      */
-    public void process(XmlPullParser parser);
+    public boolean process(XmlPullParser parser);
 }

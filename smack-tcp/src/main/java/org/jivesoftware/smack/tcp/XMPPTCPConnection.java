@@ -978,7 +978,9 @@ public class XMPPTCPConnection extends AbstractXMPPConnection {
                     case XmlPullParser.START_TAG:
                         final String name = parser.getName();
 
-                        notifyPacketReaderListeners(name, parser);
+                        if(!notifyPacketReaderListeners(name, parser)) {
+                            break;
+                        }
 
                         switch (name) {
                         case Message.ELEMENT:
@@ -1626,12 +1628,18 @@ public class XMPPTCPConnection extends AbstractXMPPConnection {
         packetReaderListeners.get(elementName).add(listener);
     }
 
-    private void notifyPacketReaderListeners(String name, XmlPullParser parser) {
+    private boolean notifyPacketReaderListeners(String name, XmlPullParser parser) {
+        boolean continueProcessing = true;
+
         if(packetReaderListeners.containsKey(name)) {
             for(PacketReaderListener listener : packetReaderListeners.get(name)) {
-                listener.process(parser);
+                if(!listener.process(parser)) {
+                    continueProcessing = false;
+                }
             }
         }
+
+        return continueProcessing;
     }
 
     /**
