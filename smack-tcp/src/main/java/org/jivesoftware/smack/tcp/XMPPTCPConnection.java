@@ -26,40 +26,40 @@ import org.jivesoftware.smack.SmackConfiguration;
 import org.jivesoftware.smack.SmackException;
 import org.jivesoftware.smack.SmackException.AlreadyConnectedException;
 import org.jivesoftware.smack.SmackException.AlreadyLoggedInException;
+import org.jivesoftware.smack.SmackException.ConnectionException;
 import org.jivesoftware.smack.SmackException.NoResponseException;
 import org.jivesoftware.smack.SmackException.NotConnectedException;
-import org.jivesoftware.smack.SmackException.ConnectionException;
 import org.jivesoftware.smack.SmackException.SecurityRequiredByClientException;
 import org.jivesoftware.smack.SmackException.SecurityRequiredByServerException;
 import org.jivesoftware.smack.SmackException.SecurityRequiredException;
 import org.jivesoftware.smack.SynchronizationPoint;
-import org.jivesoftware.smack.XMPPException.StreamErrorException;
 import org.jivesoftware.smack.XMPPConnection;
 import org.jivesoftware.smack.XMPPException;
+import org.jivesoftware.smack.XMPPException.StreamErrorException;
 import org.jivesoftware.smack.XMPPException.XMPPErrorException;
+import org.jivesoftware.smack.compress.packet.Compress;
 import org.jivesoftware.smack.compress.packet.Compressed;
 import org.jivesoftware.smack.compression.XMPPInputOutputStream;
 import org.jivesoftware.smack.filter.PacketFilter;
-import org.jivesoftware.smack.compress.packet.Compress;
 import org.jivesoftware.smack.packet.Element;
 import org.jivesoftware.smack.packet.IQ;
 import org.jivesoftware.smack.packet.Message;
-import org.jivesoftware.smack.packet.StreamOpen;
 import org.jivesoftware.smack.packet.Packet;
+import org.jivesoftware.smack.packet.PlainStreamElement;
 import org.jivesoftware.smack.packet.Presence;
 import org.jivesoftware.smack.packet.StartTls;
+import org.jivesoftware.smack.packet.StreamOpen;
+import org.jivesoftware.smack.packet.XMPPError;
 import org.jivesoftware.smack.parsing.ParsingExceptionCallback;
 import org.jivesoftware.smack.parsing.UnparsablePacket;
 import org.jivesoftware.smack.sasl.packet.SaslStreamElements;
 import org.jivesoftware.smack.sasl.packet.SaslStreamElements.Challenge;
 import org.jivesoftware.smack.sasl.packet.SaslStreamElements.SASLFailure;
 import org.jivesoftware.smack.sasl.packet.SaslStreamElements.Success;
-import org.jivesoftware.smack.packet.PlainStreamElement;
-import org.jivesoftware.smack.packet.XMPPError;
 import org.jivesoftware.smack.tcp.sm.SMUtils;
 import org.jivesoftware.smack.tcp.sm.StreamManagementException;
-import org.jivesoftware.smack.tcp.sm.StreamManagementException.StreamManagementNotEnabledException;
 import org.jivesoftware.smack.tcp.sm.StreamManagementException.StreamIdDoesNotMatchException;
+import org.jivesoftware.smack.tcp.sm.StreamManagementException.StreamManagementNotEnabledException;
 import org.jivesoftware.smack.tcp.sm.packet.StreamManagement;
 import org.jivesoftware.smack.tcp.sm.packet.StreamManagement.AckAnswer;
 import org.jivesoftware.smack.tcp.sm.packet.StreamManagement.AckRequest;
@@ -87,7 +87,6 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.PasswordCallback;
-
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
@@ -110,6 +109,7 @@ import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -244,6 +244,8 @@ public class XMPPTCPConnection extends AbstractXMPPConnection {
      * only be invoked once and automatically removed after that.
      */
     private final Map<String, PacketListener> stanzaIdAcknowledgedListeners = new ConcurrentHashMap<String, PacketListener>();
+
+    private final Map<String, Set<PacketReaderListener>> packetReaderListeners = new ConcurrentHashMap<String, Set<PacketReaderListener>>();
 
     /**
      * Predicates that determine if an stream management ack should be requested from the server.
@@ -975,6 +977,9 @@ public class XMPPTCPConnection extends AbstractXMPPConnection {
                     switch (eventType) {
                     case XmlPullParser.START_TAG:
                         final String name = parser.getName();
+
+                        notifyPacketReaderListeners(name, parser);
+
                         switch (name) {
                         case Message.ELEMENT:
                         case IQ.ELEMENT:
@@ -1167,6 +1172,7 @@ public class XMPPTCPConnection extends AbstractXMPPConnection {
                         instantShutdown();
                         break outerloop;
                     }
+
                     eventType = parser.next();
                 }
             }
@@ -1604,6 +1610,28 @@ public class XMPPTCPConnection extends AbstractXMPPConnection {
      */
     public void removeAllStanzaIdAcknowledgedListeners() {
         stanzaIdAcknowledgedListeners.clear();
+    }
+
+    public void removePacketReaderListener(String elementName, PacketReaderListener listener) {
+        if(packetReaderListeners.containsKey(elementName)) {
+            packetReaderListeners.get(elementName).remove(listener);
+        }
+    }
+
+    public void addPacketReaderListener(String elementName, PacketReaderListener listener) {
+        if(!packetReaderListeners.containsKey(elementName)) {
+            packetReaderListeners.put(elementName, new HashSet<PacketReaderListener>());
+        }
+
+        packetReaderListeners.get(elementName).add(listener);
+    }
+
+    private void notifyPacketReaderListeners(String name, XmlPullParser parser) {
+        if(packetReaderListeners.containsKey(name)) {
+            for(PacketReaderListener listener : packetReaderListeners.get(name)) {
+                listener.process(parser);
+            }
+        }
     }
 
     /**
